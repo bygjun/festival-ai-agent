@@ -1,0 +1,7 @@
+flask
+pymilvus
+pandas
+transformers
+torch
+openai
+python-dotenv

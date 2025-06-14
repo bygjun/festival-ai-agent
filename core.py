@@ -99,24 +99,28 @@ def extract_festival_names_and_addresses(festivals):
             result.append({'name': name, 'address': addr})
     return result
 
-def search_festival(user_query):
-    query_embedding = embedding_model.get_embedding(user_query)
-    results = search_festivals(MILVUS_COLLECTION, query_embedding, 150)
-    festivals = [r.get('entity') for r in results[0]]
-    system_msg = build_system_message()
-    assistant_msg = build_assistant_message(festivals, user_query)
-    messages = [
-        {"role": "system", "content": system_msg},
-        {"role": "assistant", "content": assistant_msg}
-    ]
-    response = openai.ChatCompletion.create(
-        model="gpt-4.1-mini",
-        messages=messages
-    )
-    answer = response["choices"][0]["message"]["content"]
-    result_part = answer.split("결과:")[-1].strip()
-    
-    return result_part, festivals
+def search_festival(query):
+    try:
+        query_embedding = embedding_model.get_embedding(query)
+        results = search_festivals(MILVUS_COLLECTION, query_embedding, 150)
+        festivals = [r.get("entity") for r in results[0]]
+
+        system_msg = build_system_message()
+        assistant_msg = build_assistant_message(festivals, query)
+
+        response = openai.ChatCompletion.create(
+            model="gpt-4.1-mini",
+            messages=[
+                {"role": "system", "content": system_msg},
+                {"role": "assistant", "content": assistant_msg}
+            ]
+        )
+        result_part = response["choices"][0]["message"]["content"].split("결과:")[-1].strip()
+
+        return result_part, festivals
+    except Exception as e:
+        return f"에러 발생: {str(e)}", []
+
     
 
 def geocode_address(address, user_agent="my_geocoder"):
@@ -193,13 +197,11 @@ def parse_and_render_festivals(text: str) -> str:
     intro = text[:match_start.start()].strip()
     body = text[match_start.start():].strip()
 
-    # 카드 항목 나누기
     raw_cards = re.split(r'\n\d+\.\s+', body)
     cards = []
     tail = ""
 
     for i, raw in enumerate(raw_cards[1:]):
-        # 마지막 줄이 안내 문장이면 tail로 분리
         lines = raw.strip().split("\n")
         if i == len(raw_cards[1:]) - 1:
             if len(lines) > 1 and not lines[-1].startswith("-"):
@@ -226,7 +228,6 @@ def parse_and_render_festivals(text: str) -> str:
         """
         cards.append(card_html)
 
-    # 안내 문장 tail 분리해서 출력
     html = f"<p style='font-size:1.1em; font-weight:500; margin-bottom:16px;'>{intro}</p>"
     html += "".join(cards)
     if tail:
@@ -235,26 +236,3 @@ def parse_and_render_festivals(text: str) -> str:
     return html
 
 
-def festival_chatbot(message: str, history: list) -> str:
-    try:
-        query_embedding = embedding_model.get_embedding(message)
-        results = search_festivals(config.MILVUS_COLLECTION, query_embedding, top_k=150)
-        festivals = [r.get("entity") for r in results[0]]
-
-        system_msg = build_system_message()
-        assistant_msg = build_assistant_message(festivals, message)
-
-        chat_input = [
-            {"role": "system", "content": system_msg},
-            {"role": "assistant", "content": assistant_msg}
-        ]
-
-        response = openai.ChatCompletion.create(
-            model="gpt-4o-mini",
-            messages=chat_input
-        )
-        answer = response["choices"][0]["message"]["content"]
-        result_part = answer.split("결과:")[-1].strip()
-        return parse_and_render_festivals(result_part)
-    except Exception as e:
-        return f"<p style='color:red'>에러 발생: {str(e)}</p>"

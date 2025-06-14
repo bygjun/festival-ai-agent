@@ -120,7 +120,6 @@ def search_festival(user_query):
     query_embedding = embedding_model.get_embedding(user_query)
     results = search_festivals(MILVUS_COLLECTION, query_embedding, 150)
     festivals = [r.get('entity') for r in results[0]]
-    print(festivals)
     system_msg = build_system_message()
     assistant_msg = build_assistant_message(festivals, user_query)
     messages = [
@@ -133,21 +132,8 @@ def search_festival(user_query):
     )
     answer = response["choices"][0]["message"]["content"]
     result_part = answer.split("결과:")[-1].strip()
-    print(result_part)
-    # 실제 답변에 등장한 축제명만 필터링
-    # 후기 요약
-    review_summarys = get_and_summarize_festival_reviews(user_query, [f['festival_name'] for f in festivals])
-    print(review_summarys)
-    # 각 축제별로 fetch_nearby_contents 호출
-    nearby_contents = []
-    for f in festivals:
-        contents = fetch_nearby_contents(f['lon'], f['lat'], radius=1000, num_of_rows=20, page_no=1)
-        nearby_contents.append({
-            'festival_name': f['festival_name'],
-            'address': f['address'],
-            'nearby': contents
-        })
-    return result_part, review_summarys, nearby_contents
+    
+    return result_part, festivals
     
 
 def geocode_address(address, user_agent="my_geocoder"):

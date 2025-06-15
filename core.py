@@ -10,6 +10,8 @@ from bs4 import BeautifulSoup
 import re
 from geopy.geocoders import Nominatim
 from geopy.exc import GeocoderTimedOut, GeocoderServiceError
+import json
+import gradio as gr
 
 embedding_model = EmbeddingModel(EMBEDDING_MODEL)
 openai.api_key = OPENAI_API_KEY
@@ -99,29 +101,71 @@ def extract_festival_names_and_addresses(festivals):
             result.append({'name': name, 'address': addr})
     return result
 
-def search_festival(query):
-    try:
-        query_embedding = embedding_model.get_embedding(query)
-        results = search_festivals(MILVUS_COLLECTION, query_embedding, 150)
-        festivals = [r.get("entity") for r in results[0]]
 
-        system_msg = build_system_message()
-        assistant_msg = build_assistant_message(festivals, query)
 
-        response = openai.ChatCompletion.create(
-            model="gpt-4.1-mini",
-            messages=[
-                {"role": "system", "content": system_msg},
-                {"role": "assistant", "content": assistant_msg}
-            ]
-        )
-        result_part = response["choices"][0]["message"]["content"].split("결과:")[-1].strip()
+def extract_and_remove_festival_ids(answer):
+    """
+    GPT 응답 문자열에서 JSON 형식의 festival_ids 정보를 추출하고 제거.
+    """
+    match = re.search(r'(\{[^{]*"festival_ids"\s*:\s*\[[^\]]*\][^}]*\})', answer)
+    festival_ids = []
+    if match:
+        try:
+            obj = json.loads(match.group(1))
+            festival_ids = obj.get("festival_ids", [])
+        except Exception as e:
+            print("JSON 파싱 오류:", e)
+        answer = answer.replace(match.group(1), '').strip()
+    return festival_ids, answer
 
-        return result_part, festivals
-    except Exception as e:
-        return f"에러 발생: {str(e)}", []
 
-    
+def search_festival(user_query):
+    query_embedding = embedding_model.get_embedding(user_query)
+    results = search_festivals(MILVUS_COLLECTION, query_embedding, 150)
+    festivals = [r.get('entity') for r in results[0]]
+    system_msg = build_system_message()
+    assistant_msg = build_assistant_message(festivals, user_query)
+    messages = [
+        {"role": "system", "content": system_msg},
+        {"role": "assistant", "content": assistant_msg}
+    ]
+    response = openai.ChatCompletion.create(
+        model="gpt-4.1-mini",
+        messages=messages
+    )
+    answer = response["choices"][0]["message"]["content"]
+    result_part = answer.split("결과:")[-1].strip()
+    festival_ids, clean_answer = extract_and_remove_festival_ids(result_part)
+    festival_reviews = []
+    for festival_id in festival_ids:
+        festivalInfo = next((x for x in festivals if x['primary_key'] == festival_id), None)
+        festival_reviews.append(festivalInfo)
+
+    print(clean_answer, festival_reviews)
+    return clean_answer, festival_reviews
+
+def extract_festival_blocks_with_names(text: str):
+    """
+    GPT 응답 텍스트에서 축제별 카드 블록과 이름을 추출
+    → [(festival_name, card_text), ...] 형태로 리턴
+    """
+    text = text.strip()
+    match_start = re.search(r'\n?1\.', text)
+    if not match_start:
+        return []
+
+    body = text[match_start.start():].strip()
+    raw_cards = re.split(r'\n\d+\.\s+', body)
+
+    results = []
+    for raw in raw_cards[1:]:  # 첫 항목은 공백 또는 설명
+        lines = raw.strip().split("\n")
+        card_text = "\n".join(lines)
+        name_line = lines[0]
+        festival_name = name_line.split('(')[0].strip()
+        results.append((festival_name, card_text))
+
+    return results 
 
 def geocode_address(address, user_agent="my_geocoder"):
     """
@@ -149,6 +193,7 @@ def search_nearby_contents(lon, lat, radius=2000, num_of_rows=10, page_no=1):
         "mapX": lon,           # 경도
         "mapY": lat,           # 위도
         "radius": radius,      # 반경(미터)
+        "contentTypeId":"12",
         "_type": "json",       # JSON 형식 응답
     }
     headers = {
@@ -178,61 +223,11 @@ def search_nearby_contents(lon, lat, radius=2000, num_of_rows=10, page_no=1):
                 # 필요에 따라 추가 필드 추출
             }
             accommodations.append(acc)
+        print("content", accommodations)
         return accommodations
     except requests.RequestException as e:
         print(f"API 호출 중 오류 발생: {e}")
     except ValueError as e:
         print(f"JSON 파싱 오류: {e}")
     return []
-
-import re
-
-def parse_and_render_festivals(text: str) -> str:
-    text = text.strip()
-
-    match_start = re.search(r'\n?1\.', text)
-    if not match_start:
-        return "<p>형식이 올바르지 않습니다.</p>"
-
-    intro = text[:match_start.start()].strip()
-    body = text[match_start.start():].strip()
-
-    raw_cards = re.split(r'\n\d+\.\s+', body)
-    cards = []
-    tail = ""
-
-    for i, raw in enumerate(raw_cards[1:]):
-        lines = raw.strip().split("\n")
-        if i == len(raw_cards[1:]) - 1:
-            if len(lines) > 1 and not lines[-1].startswith("-"):
-                tail = lines.pop(-1).strip()
-        card_text = "\n".join(lines)
-
-        html_body = card_text.replace("**", "<strong>").replace("\n", "<br>")
-
-        card_html = f"""
-        <div style='border:1px solid #e0e0e0; border-radius:12px; padding:20px; margin:12px 0;
-                    background:linear-gradient(to right, #f9f9f9, #fcfcfc); box-shadow: 0 2px 5px rgba(0,0,0,0.05);'>
-            {html_body}
-            <div style='margin-top:12px;'>
-                <button style='background-color:#4CAF50; color:white; border:none; padding:8px 16px;
-                               border-radius:8px; cursor:pointer; margin-right:8px; font-weight:600;'>
-                    숙소 보기
-                </button>
-                <button style='background-color:#2196F3; color:white; border:none; padding:8px 16px;
-                               border-radius:8px; cursor:pointer; font-weight:600;'>
-                    후기 보기
-                </button>
-            </div>
-        </div>
-        """
-        cards.append(card_html)
-
-    html = f"<p style='font-size:1.1em; font-weight:500; margin-bottom:16px;'>{intro}</p>"
-    html += "".join(cards)
-    if tail:
-        html += f"<p style='font-size:1em; margin-top:24px; color:#444;'>{tail}</p>"
-
-    return html
-
 

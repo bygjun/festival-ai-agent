@@ -1,43 +1,65 @@
-# ui.py
-import gradio as gr
-from core import search_festival, parse_and_render_festivals
+import streamlit as st
+from core import search_festival_review, search_festival, geocode_address, search_nearby_contents
+import re
 
-chatbot_state = gr.State([])
+def parse_clean_answer(clean_answer: str):
+    result = {"intro": "", "items": [], "outro": ""}
+    lines = clean_answer.strip().split("\n")
+    current_item = []
 
-def festival_chatbot(message, history):
-    result_part, festivals = search_festival(message)
-    html = parse_and_render_festivals(result_part)
-    return html
+    for idx, line in enumerate(lines):
+        if re.match(r"^\d+\.\s", line):
+            if current_item:
+                result["items"].append("\n".join(current_item).strip())
+                current_item = []
+            current_item.append(line)
+        elif current_item:
+            current_item.append(line)
+        elif not result["items"]:
+            result["intro"] += line.strip() + "\n"
 
+    if current_item:
+        result["items"].append("\n".join(current_item).strip())
 
-def respond_and_update(message, history):
-    history = history or []
-    response = festival_chatbot(message, history)
-    history.append((message, response))
+    if lines:
+        result["outro"] = lines[-1].strip()
+        if result["items"] and result["items"][-1].endswith(result["outro"]):
+            result["items"][-1] = result["items"][-1].rsplit(result["outro"], 1)[0].strip()
 
-    display = ""
-    for _, bot_response in history:
-        display += f"<div style='margin-bottom:12px'>{bot_response}</div>"
-    return display, history
+    result["intro"] = result["intro"].strip()
+    return result
 
-with gr.Blocks() as demo:
-    gr.Markdown("# 🎉 축제 검색 챗봇")
+# 세션 상태 초기화
+if "search_query" not in st.session_state:
+    st.session_state["search_query"] = ""
 
-    chatbot_state = gr.State([])
+st.title("🎊 대한민국 축제 검색")
 
-    with gr.Column():
-        user_input = gr.Textbox(label="질문을 입력하세요", placeholder="예: 가을에 강원도에서 열리는 축제 알려줘")
-        send_button = gr.Button("전송")
+# 검색 입력 폼
+with st.form(key="search_form"):
+    input_query = st.text_input("축제를 검색하세요", value=st.session_state["search_query"])
+    submitted = st.form_submit_button("검색")
+    if submitted:
+        st.session_state["search_query"] = input_query
+        st.rerun()
 
-    chat_history = gr.HTML(label="응답")
+# 검색 실행
+query = st.session_state["search_query"]
+if query:
+    with st.spinner("🔍 축제를 찾는 중입니다..."):
+        clean_answer, festivals = search_festival(query)
+        parsed = parse_clean_answer(clean_answer)
 
-    def respond_and_update(message, history):
-        response = festival_chatbot(message, history)
-        return response, []  
+        if parsed["intro"]:
+            st.markdown(parsed["intro"])
 
-    send_button.click(respond_and_update, inputs=[user_input, chatbot_state], outputs=[chat_history, chatbot_state])
+        # items와 festivals를 인덱스 기반으로 확실하게 매핑
+        for i, (item_text, fest) in enumerate(zip(parsed["items"], festivals)):
+            title_match = re.match(r"\d+\.\s*(.+?)\s*\n", item_text)
+            name = title_match.group(1).strip() if title_match else f"축제{i+1}"
 
+            st.markdown("---")
+            st.markdown(item_text)
 
-
-if __name__ == "__main__":
-    demo.launch()
+        if parsed["outro"]:
+            st.markdown(parsed["outro"])

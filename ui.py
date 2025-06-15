@@ -1,5 +1,9 @@
 import streamlit as st
-from core import search_festival_review, search_festival, geocode_address, search_nearby_contents
+from core import (
+    search_festival_review,
+    search_festival,
+    search_nearby_contents,
+)
 import re
 
 def parse_clean_answer(clean_answer: str):
@@ -53,13 +57,47 @@ if query:
         if parsed["intro"]:
             st.markdown(parsed["intro"])
 
-        # items와 festivals를 인덱스 기반으로 확실하게 매핑
         for i, (item_text, fest) in enumerate(zip(parsed["items"], festivals)):
             title_match = re.match(r"\d+\.\s*(.+?)\s*\n", item_text)
             name = title_match.group(1).strip() if title_match else f"축제{i+1}"
 
             st.markdown("---")
             st.markdown(item_text)
+
+            # 후기
+            with st.expander("📖 후기 보기", expanded=False):
+                review = search_festival_review(name)
+                st.markdown(review)
+
+            # 주변 문화재
+            with st.expander("📍 주변 문화재 보기", expanded=False):
+                if fest is None:
+                    st.markdown("❗ 주변 문화재가 확인되지 않습니다.")
+                    continue
+
+                lat = fest.get("lat")
+                lon = fest.get("lon")
+                if lat and lon:
+                    nearby = search_nearby_contents(lon, lat)
+                    st.write(f"📜 문화재 검색 결과 수: {len(nearby)}")
+                    if nearby:
+                        for item in nearby:
+                            with st.container():
+                                cols = st.columns([1, 3])
+                                with cols[0]:
+                                    if item["first_image"]:
+                                        st.image(item["first_image"], width=100)
+                                    else:
+                                        st.write("🖼️ 이미지 없음")
+                                with cols[1]:
+                                    st.markdown(f"**{item['title']}**")
+                                    st.markdown(f"📍 {item['addr']} {item['addr_detail']}")
+                                    if item['tel']:
+                                        st.markdown(f"📞 {item['tel']}")
+                    else:
+                        st.markdown("🚫 주변 문화재 정보를 찾을 수 없습니다.")
+                else:
+                    st.markdown("📍 위치 좌표 정보가 없어 검색할 수 없습니다.")
 
         if parsed["outro"]:
             st.markdown(parsed["outro"])

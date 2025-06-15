@@ -12,6 +12,6 @@ def search_festivals(collection, query_embedding, top_k=5):
         collection_name=collection,
         data=[query_embedding],
         limit=top_k,
-        output_fields=["embedding_text", "address", "festival_name", "lon", "lat"]
+        output_fields=["primary_key", "embedding_text", "address", "festival_name", "lon", "lat"]
     )
     return results

@@ -10,6 +10,7 @@ from bs4 import BeautifulSoup
 import re
 from geopy.geocoders import Nominatim
 from geopy.exc import GeocoderTimedOut, GeocoderServiceError
+import json
 
 embedding_model = EmbeddingModel(EMBEDDING_MODEL)
 openai.api_key = OPENAI_API_KEY
@@ -132,8 +133,12 @@ def search_festival(user_query):
     )
     answer = response["choices"][0]["message"]["content"]
     result_part = answer.split("결과:")[-1].strip()
-    
-    return result_part, festivals
+    festival_ids, clean_answer = extract_and_remove_festival_ids(result_part)
+    festival_reviews = []
+    for festival_id in festival_ids:
+        festivalInfo = next((x for x in festivals if x['primary_key'] == festival_id), None)
+        festival_reviews.append(festivalInfo)
+    return clean_answer, festival_reviews
     
 
 def geocode_address(address, user_agent="my_geocoder"):
@@ -198,7 +203,21 @@ def search_nearby_contents(lon, lat, radius=2000, num_of_rows=10, page_no=1):
         print(f"JSON 파싱 오류: {e}")
     return []
 
+def extract_and_remove_festival_ids(answer):
+    # JSON 객체 패턴 추출
+    match = re.search(r'(\{[^{]*"festival_ids"\s*:\s*\[[^\]]*\][^}]*\})', answer)
+    festival_ids = []
+    if match:
+        try:
+            obj = json.loads(match.group(1))
+            festival_ids = obj.get("festival_ids", [])
+        except Exception as e:
+            print("JSON 파싱 오류:", e)
+        # JSON 부분을 답변에서 제거
+        answer = answer.replace(match.group(1), '').strip()
+    return festival_ids, answer
+
 if __name__ == "__main__":
-    result = search('서울 먹거리 축제')
+    result = search_festival('서울 먹거리 축제')
     print(result)   
     

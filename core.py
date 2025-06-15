@@ -11,7 +11,7 @@ import re
 from geopy.geocoders import Nominatim
 from geopy.exc import GeocoderTimedOut, GeocoderServiceError
 import json
-import gradio as gr
+
 
 embedding_model = EmbeddingModel(EMBEDDING_MODEL)
 openai.api_key = OPENAI_API_KEY
@@ -144,28 +144,6 @@ def search_festival(user_query):
     print(clean_answer, festival_reviews)
     return clean_answer, festival_reviews
 
-def extract_festival_blocks_with_names(text: str):
-    """
-    GPT 응답 텍스트에서 축제별 카드 블록과 이름을 추출
-    → [(festival_name, card_text), ...] 형태로 리턴
-    """
-    text = text.strip()
-    match_start = re.search(r'\n?1\.', text)
-    if not match_start:
-        return []
-
-    body = text[match_start.start():].strip()
-    raw_cards = re.split(r'\n\d+\.\s+', body)
-
-    results = []
-    for raw in raw_cards[1:]:  # 첫 항목은 공백 또는 설명
-        lines = raw.strip().split("\n")
-        card_text = "\n".join(lines)
-        name_line = lines[0]
-        festival_name = name_line.split('(')[0].strip()
-        results.append((festival_name, card_text))
-
-    return results 
 
 def geocode_address(address, user_agent="my_geocoder"):
     """
@@ -183,35 +161,49 @@ def geocode_address(address, user_agent="my_geocoder"):
 
 
 def search_nearby_contents(lon, lat, radius=2000, num_of_rows=10, page_no=1):
-
-    # 엔드포인트 URL: 실제로 제공받은 Base URL/SWAGGER 문서 참고
     base_url = "http://apis.data.go.kr/B551011/KorService2/locationBasedList2"
     params = {
         "ServiceKey": "0jY3xlWlBSmUzyQgCRRlQ65QJHi779J5zYk+pLBZYIV+dqyGWr7HfYOo9WWDew18cxxhDTr109sYeb2DWP10pw==",
         "MobileOS": "ETC",
-        "MobileApp": "MyApp",  # 앱 이름(임의 문자열)
-        "mapX": lon,           # 경도
-        "mapY": lat,           # 위도
-        "radius": radius,      # 반경(미터)
-        "contentTypeId":"12",
-        "_type": "json",       # JSON 형식 응답
+        "MobileApp": "MyApp",
+        "mapX": lon,
+        "mapY": lat,
+        "radius": radius,
+        "contentTypeId": "12",  # 관광지
+        "numOfRows": num_of_rows,
+        "pageNo": page_no,
+        "_type": "json",
     }
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0.0.0 Safari/537.36"
+        )
     }
+
     try:
         resp = requests.get(base_url, params=params, headers=headers, timeout=10, verify=False)
 
-        data = resp.json()
-        print(data)
-        # 응답 구조 예시: data['response']['body']['items']['item']가 리스트
-        items = data.get('response', {}).get('body', {}).get('items', {}).get('item')
-        if not items:
-            print("검색 결과가 없습니다.")
+        # JSON 파싱 시 예외 대비
+        try:
+            data = resp.json()
+        except json.JSONDecodeError:
+            print("JSON 파싱 실패. 응답:", resp.text)
             return []
+
+        if not isinstance(data, dict):
+            print("JSON 응답이 dict 형식이 아님. 실제 타입:", type(data))
+            return []
+
+        items = data.get('response', {}).get('body', {}).get('items', {}).get('item', [])
+
+        if not items:
+            print("주변 콘텐츠 검색 결과 없음.")
+            return []
+
         accommodations = []
         for it in items:
-            # 주요 필드: 제목(title), 주소(addr1/addr2), 전화번호(tel), 위도(mapy), 경도(mapx), 이미지 대표(picURL 또는 firstImageUrl)
             acc = {
                 "title": it.get("title"),
                 "addr": it.get("addr1"),
@@ -219,15 +211,16 @@ def search_nearby_contents(lon, lat, radius=2000, num_of_rows=10, page_no=1):
                 "tel": it.get("tel"),
                 "map_lat": it.get("mapy"),
                 "map_lon": it.get("mapx"),
-                "first_image": it.get("firstimage") or it.get("firstImageUrl"),  # 필드명은 API 버전에 따라 다를 수 있음
-                # 필요에 따라 추가 필드 추출
+                "first_image": it.get("firstimage") or it.get("firstImageUrl"),
             }
             accommodations.append(acc)
-        print("content", accommodations)
-        return accommodations
-    except requests.RequestException as e:
-        print(f"API 호출 중 오류 발생: {e}")
-    except ValueError as e:
-        print(f"JSON 파싱 오류: {e}")
-    return []
 
+        print("주변 콘텐츠 검색 성공:", len(accommodations), "건")
+        return accommodations
+
+    except requests.RequestException as e:
+        print(f"API 호출 중 네트워크 오류 발생: {e}")
+    except Exception as e:
+        print(f"알 수 없는 오류 발생: {e}")
+
+    return []

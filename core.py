@@ -11,7 +11,6 @@ import re
 from geopy.geocoders import Nominatim
 from geopy.exc import GeocoderTimedOut, GeocoderServiceError
 import json
-import gradio as gr
 
 embedding_model = EmbeddingModel(EMBEDDING_MODEL)
 openai.api_key = OPENAI_API_KEY

@@ -23,7 +23,7 @@ def search():
             {"role": "assistant", "content": assistant_msg}
         ]
         response = openai.ChatCompletion.create(
-            model="gpt-4o-mini",
+            model="gpt-4.1-mini",
             messages=messages
         )
         answer = response["choices"][0]["message"]["content"]

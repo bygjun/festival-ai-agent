@@ -13,5 +13,4 @@ pip install -r requirements.txt
 프로젝트 루트의 `.env` 파일에 OPENAI_API_KEY 키를 넣어줍니다.
 
 5. 앱 실행
-app.py 파일에 user_query 변수에 질문을 넣고 실행
-python app.py
+streamlit run ui.py

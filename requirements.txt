@@ -5,3 +5,8 @@ transformers
 torch
 openai
 python-dotenv
+requests>=2.0.0
+beautifulsoup4>=4.0.0
+openai==0.28
+geopy>=2.0.0
+streamlit
